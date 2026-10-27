@@ -1,67 +1,141 @@
-# Template de démonstration
+# Helios easyControls pour Gladys Assistant
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Affiche une ventilation double flux Helios KWL EC à carte easyControls dans
+Gladys, par son interface Modbus TCP sur votre réseau local (sans cloud).
+Non officiel : sans lien avec Helios. Jamais testé avec un vrai appareil :
+merci de signaler ce que montre votre centrale (voir « To check » dans
+`TODO.md`).
 
-## Ce que vous obtenez
+## Prérequis
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+- Une centrale Helios KWL EC à carte easyControls (l’interface web de la
+  centrale), logiciel 2.01 ou plus récent (exigé par Helios pour le
+  Modbus TCP). Les centrales easyControls 3.0, en Modbus RTU seulement, ne
+  sont pas prises en charge.
+- La centrale sur votre réseau local, avec une adresse IP fixe (réglée dans
+  votre routeur). Le Modbus TCP utilise le port 502 et l’identifiant
+  d’unité 180, fixés par Helios.
+- Le Modbus TCP n’a pas de mot de passe : tout appareil de votre réseau peut
+  lire et commander la centrale. Gardez-la sur un réseau de confiance.
 
-## Configuration
+## Installation
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. Installez l’intégration depuis le store de Gladys.
+2. Dans sa configuration, saisissez l’adresse IP de la centrale et
+   enregistrez.
+3. Ouvrez l’onglet Découverte et ajoutez la centrale.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Ce que Gladys affiche
 
-## Actions
+- Températures de l’air extérieur, soufflé, rejeté et extrait (°C).
+- Mode de fonctionnement (automatique, manuel) et niveau de ventilation (1
+  à 4 ; le niveau 0, ventilateurs arrêtés, n’apparaît que dans le statut),
+  niveau de ventilation (%), vitesses des ventilateurs de soufflage et
+  d’extraction (tr/min).
+- Mode fête et mode veille (actif ou non, minutes restantes).
+- Changement des filtres à faire, jours restants avant ce changement.
+- Défaut (tout bit d’erreur de la centrale) et avertissement ; le code
+  d’erreur est dans le statut.
+- Les capteurs externes d’humidité (KWL-FTF) et de CO2 (KWL-CO2) branchés
+  sur la centrale : chacun apparaît dès que la centrale renvoie une valeur
+  pour lui (vérifié à la première lecture, puis toutes les heures), et il
+  reste ensuite.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+Une valeur renvoyée vide, en « - » (pas de capteur), hors de sa plage ou
+mal formée est inconnue : elle n’est pas publiée, et jamais comme 0.
 
-## Scènes
+## Lectures
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+La centrale est lue à chaque intervalle de rafraîchissement (60 s par
+défaut, de 30 s à 1 h), par une seule connexion Modbus TCP, une requête à
+la fois (chaque variable demande deux requêtes : sa sélection, puis sa
+lecture). Les lectures ne viennent jamais avant l’intervalle depuis la
+précédente, y compris après le bouton « Tester la connexion », un scan de
+la Découverte, une reconnexion à Gladys ou un redémarrage de l’intégration
+(l’heure de la dernière lecture est gardée dans `/data`). Lectures plus
+tôt : une nouvelle adresse enregistrée, les lectures d’une commande (avant
+et après son écriture), un arrêt du mode fête et ses renvois (la relecture
+du mode fête), et les lectures de suivi 5 s et 20 s après une commande.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+L’adresse MAC de la centrale est lue en premier. La première lue est gardée
+pour cette adresse ; si une autre répond ensuite, ses valeurs ne sont pas
+affichées, les commandes sont refusées et le statut le dit. « Tester la
+connexion » accepte alors l’adresse MAC affichée (carte remplacée).
 
-## Tableau de bord
+Un autre client Modbus (Home Assistant, un script) qui lit la centrale au
+même moment peut changer la variable sélectionnée entre nos deux requêtes :
+la réponse nomme alors une autre variable et cette valeur reste inconnue
+pour cette lecture.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+## Commandes
 
-## Dépannage
+Désactivées par défaut. Avec « Autoriser les commandes » :
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **Mode de fonctionnement** (automatique, manuel).
+- **Niveau de ventilation** 1 à 4, en mode manuel seulement (en mode
+  automatique, la centrale règle elle-même le niveau : passez d’abord en
+  manuel). Le niveau 0 (ventilateurs arrêtés) n’est jamais proposé.
+- **Démarrer le mode fête** (avec la durée et le niveau réglés sur la
+  centrale).
+
+Chaque commande relit la centrale juste avant (adresse MAC, veille, niveau
+de ventilation, mode de fonctionnement ou mode fête) et est refusée si l’un
+d’eux ne peut pas être relu, si une autre adresse MAC répond, en mode veille
+ou ventilateurs arrêtés (niveau 0 : la commande pourrait les relancer), ou si
+`/data` est illisible. Un démarrage du mode fête après un arrêt est aussi
+refusé si `/data` ne peut pas être écrit (la garde d’arrêt doit d’abord y
+être levée). La commande est écrite dans les 3,5 s qui suivent le clic, puis
+relue : succès seulement si la valeur relue est celle demandée. Sinon la
+réponse est « envoyée, sans confirmation » (une vérification suit 5 s et
+20 s plus tard), « refusée par la centrale » (exception Modbus 1 à 3), ou
+« non envoyée ».
+
+## Arrêter le mode fête
+
+« Arrêter le mode fête » ne dépend jamais de l’option « Autoriser les
+commandes », d’une autre commande, du contrôle d’identité, d’une lecture en
+échec ni de la lecture de la configuration : avant celle-ci, il part vers la
+dernière adresse gardée dans `/data`. Il prend la connexion à toute lecture
+ou commande, et une commande pas encore écrite est alors refusée. La
+connexion est retentée toutes les 250 ms pendant 3,5 s après l’appui.
+
+Il peut échouer dans ces cas, et la réponse dit lequel :
+
+- pas d’adresse : aucune dans la configuration, ou aucune encore gardée
+  dans `/data` alors que la configuration ne peut pas être lue (« non
+  envoyée ») ;
+- la centrale reste injoignable pendant 3,5 s (« non envoyée ») ;
+- l’écriture est partie mais la centrale n’a pas répondu, a répondu autre
+  chose, ou le mode fête est relu actif, ou ne peut pas être relu
+  (« envoyée, sans confirmation ») ;
+- la centrale a refusé l’écriture par une exception Modbus 1 à 3 (« refusée
+  par la centrale ») ;
+- une autre adresse est enregistrée pendant l’arrêt, ou l’intégration
+  s’arrête.
+
+Après un appui, une garde d’arrêt est gardée dans `/data`. Tant que l’arrêt
+n’est pas vu appliqué, une lecture qui montre le mode fête actif renvoie
+l’arrêt (trois fois au plus par appui), et un arrêt non confirmé est renvoyé
+au démarrage de l’intégration, avant la lecture de la configuration. Si un
+démarrage du mode fête depuis Gladys a été écrit sans confirmation avant
+l’arrêt, le mode fête relu actif dans les 2 minutes qui suivent l’arrêt est
+aussi pris pour ce démarrage arrivé en retard, et l’arrêt est renvoyé (même
+limite). La garde n’est pas levée par le temps : seulement par un démarrage
+du mode fête depuis Gladys (option activée), par le mode fête relu actif à
+deux lectures de suite après que l’arrêt a été vu appliqué (démarré sur la
+centrale ou par une autre application), ou par une autre adresse
+enregistrée.
+
+## Statut
+
+L’écran de configuration affiche l’état de la centrale (niveau, mode, mode
+fête, code de défaut, filtres), la cause d’un échec et le délai avant la
+prochaine lecture. Si Gladys ne peut pas donner la configuration à
+l’intégration, le statut le dit et la configuration est redemandée après
+5 s, 15 s, 30 s, puis toutes les minutes.
+
+## Données
+
+`/data/helios-state.json` contient l’heure de la dernière lecture, l’adresse
+et l’adresse MAC de la centrale, les capteurs externes vus et la garde
+d’arrêt du mode fête. Rien n’est envoyé ailleurs qu’à la centrale.
