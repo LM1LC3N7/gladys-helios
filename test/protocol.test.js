@@ -177,3 +177,55 @@ test('a Modbus exception is "refused", with its code', async () => {
   socket.emit('data', frame(socket.written[0].readUInt16BE(0), Buffer.from([0x90, 3])));
   await assert.rejects(request, (err) => err.kind === ERROR_KINDS.REFUSED && err.code === 3);
 });
+
+test('r1 I5: only the whitelist is ever written (never the standby, never stage 0)', () => {
+  assert.throws(() => writeRequest(VARIABLES.standby, '1'), /bad write/);
+  assert.throws(() => writeRequest(VARIABLES.standby, '0'), /bad write/);
+  assert.throws(() => writeRequest(VARIABLES.fanStage, '0'), /bad write/);
+  assert.throws(() => writeRequest(VARIABLES.fanStage, '5'), /bad write/);
+  assert.throws(() => writeRequest(VARIABLES.mode, '2'), /bad write/);
+  assert.throws(() => writeRequest(VARIABLES.party, '2'), /bad write/);
+  assert.throws(() => writeRequest({ name: 'v01031' }, '0'), /bad write/);
+  for (const [variable, value] of [
+    [VARIABLES.party, '0'],
+    [VARIABLES.party, '1'],
+    [VARIABLES.mode, '0'],
+    [VARIABLES.mode, '1'],
+    [VARIABLES.fanStage, '1'],
+    [VARIABLES.fanStage, '4'],
+  ]) {
+    assert.ok(writeRequest(variable, value));
+  }
+});
+
+test('r1 I4, M2: the model name, -0 and a CO2 below 250 ppm', () => {
+  for (const raw of ['-', '--', ' - ', '<img src=x onerror=1>', 'KWL;rm', '"x"', '.', '']) {
+    assert.equal(decodeValue(VARIABLES.article, raw), undefined, JSON.stringify(raw));
+  }
+  assert.equal(decodeValue(VARIABLES.article, 'KWL EC 300 W R'), 'KWL EC 300 W R');
+  assert.equal(decodeValue(VARIABLES.article, 'KWL 270/370 (D) +'), 'KWL 270/370 (D) +');
+  assert.ok(Object.is(decodeValue(VARIABLES.outdoor, '-0.0'), 0));
+  assert.equal(decodeValue(VARIABLES.co2_1, '0'), undefined);
+  assert.equal(decodeValue(VARIABLES.co2_1, '249'), undefined);
+  assert.equal(decodeValue(VARIABLES.co2_1, '400'), 400);
+});
+
+test('r1 I3: a request past its deadline is never sent; one request at a time', async () => {
+  const late = new Socket();
+  let now = 1_000;
+  const session = new ModbusSession(late, { now: () => now });
+  await assert.rejects(
+    session.request(writeRequest(VARIABLES.party, '1'), { startBy: 999 }),
+    (err) => err.kind === ERROR_KINDS.LATE && !err.sent,
+  );
+  assert.equal(late.written.length, 0, 'nothing sent');
+  now = 0;
+  const first = session.request(readRequest(VARIABLES.party), { startBy: 999 });
+  await assert.rejects(
+    session.request(readRequest(VARIABLES.mode)),
+    (err) => err.kind === ERROR_KINDS.PROTOCOL,
+  );
+  assert.equal(late.written.length, 1, 'the second request never left');
+  session.close();
+  await assert.rejects(first);
+});

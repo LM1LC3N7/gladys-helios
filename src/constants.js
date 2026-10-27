@@ -102,7 +102,8 @@ for (let i = 1; i <= EXTERNAL_COUNT; i += 1) {
     name: `v${String(127 + i).padStart(5, '0')}`,
     len: 7,
     kind: 'float',
-    min: 0,
+    // Below 250 ppm (outdoor air is about 400) a CO2 sensor is in error: unknown.
+    min: 250,
     max: 9998,
     round: true,
     group: 'external',

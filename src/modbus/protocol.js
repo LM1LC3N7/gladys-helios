@@ -53,11 +53,20 @@ export function readRequest(variable) {
 }
 
 /**
- * A write "vXXXXX=value\0". Only the digits of the commands are ever
- * written: anything else throws before a byte is built.
+ * The only writes ever built: party mode 0/1, operating mode 0/1, fan stage
+ * 1-4 (never 0: fans off; never the standby mode). Anything else throws
+ * before a byte is built, whatever the caller asks.
  */
+export const WRITABLE = {
+  v00094: /^[01]$/,
+  v00101: /^[01]$/,
+  v00102: /^[1-4]$/,
+};
+
+/** A write "vXXXXX=value\0", from the whitelist only. */
 export function writeRequest(variable, value) {
-  if (!NAME.test(variable.name) || typeof value !== 'string' || !/^\d{1,3}$/.test(value)) {
+  const allowed = Object.hasOwn(WRITABLE, variable?.name) ? WRITABLE[variable.name] : undefined;
+  if (!allowed || typeof value !== 'string' || !allowed.test(value)) {
     throw new Error('bad write');
   }
   return writeText(`${variable.name}=${value}`);
@@ -126,7 +135,8 @@ export function decodeValue(variable, raw) {
       if (!Number.isFinite(value) || value < variable.min || value > variable.max) {
         return undefined;
       }
-      return variable.round ? Math.round(value) : Math.round(value * 10) / 10;
+      // + 0 turns -0 into 0.
+      return (variable.round ? Math.round(value) : Math.round(value * 10) / 10) + 0;
     }
     case 'mac': {
       if (!/^[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}$/.test(raw)) return undefined;
@@ -136,8 +146,12 @@ export function decodeValue(variable, raw) {
     case 'version':
       return /^\d{1,2}\.\d{2}$/.test(raw) ? raw : undefined;
     case 'text': {
+      // A model name: letters, digits, space and . _ / ( ) + - only; "-" or
+      // punctuation alone is no name.
       const value = raw.trim();
-      return value.length > 0 ? value : undefined;
+      return /^[A-Za-z0-9 ._/()+-]{1,31}$/.test(value) && /[A-Za-z0-9]/.test(value)
+        ? value
+        : undefined;
     }
     default:
       return undefined;

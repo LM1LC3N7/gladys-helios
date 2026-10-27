@@ -42,7 +42,9 @@ merci de signaler ce que montre votre centrale (voir « To check » dans
   reste ensuite.
 
 Une valeur renvoyée vide, en « - » (pas de capteur), hors de sa plage ou
-mal formée est inconnue : elle n’est pas publiée, et jamais comme 0.
+mal formée est inconnue : elle n’est pas publiée, et jamais comme 0. Une
+valeur de CO2 sous 250 ppm est prise pour une erreur du capteur. Le nom du
+modèle ne garde que les lettres, les caractères 0 à 9, les espaces et `. _ / ( ) + -`.
 
 ## Lectures
 
@@ -94,37 +96,38 @@ réponse est « envoyée, sans confirmation » (une vérification suit 5 s et
 
 « Arrêter le mode fête » ne dépend jamais de l’option « Autoriser les
 commandes », d’une autre commande, du contrôle d’identité, d’une lecture en
-échec ni de la lecture de la configuration : avant celle-ci, il part vers la
-dernière adresse gardée dans `/data`. Il prend la connexion à toute lecture
+échec ni de la lecture de la configuration : avant celle-ci, ou tant qu’elle n’a
+pas d’adresse valide, il part vers la dernière adresse valide gardée dans
+`/data`. Il prend la connexion à toute lecture
 ou commande, et une commande pas encore écrite est alors refusée. La
 connexion est retentée toutes les 250 ms pendant 3,5 s après l’appui.
 
 Il peut échouer dans ces cas, et la réponse dit lequel :
 
-- pas d’adresse : aucune dans la configuration, ou aucune encore gardée
-  dans `/data` alors que la configuration ne peut pas être lue (« non
-  envoyée ») ;
+- pas d’adresse : aucune valide dans la configuration et aucune gardée
+  dans `/data` (« non envoyée ») ;
 - la centrale reste injoignable pendant 3,5 s (« non envoyée ») ;
 - l’écriture est partie mais la centrale n’a pas répondu, a répondu autre
   chose, ou le mode fête est relu actif, ou ne peut pas être relu
   (« envoyée, sans confirmation ») ;
 - la centrale a refusé l’écriture par une exception Modbus 1 à 3 (« refusée
   par la centrale ») ;
-- une autre adresse est enregistrée pendant l’arrêt, ou l’intégration
-  s’arrête.
+- une autre adresse valide est enregistrée pendant l’arrêt, ou
+  l’intégration s’arrête.
 
 Après un appui, une garde d’arrêt est gardée dans `/data`. Tant que l’arrêt
 n’est pas vu appliqué, une lecture qui montre le mode fête actif renvoie
-l’arrêt (trois fois au plus par appui), et un arrêt non confirmé est renvoyé
-au démarrage de l’intégration, avant la lecture de la configuration. Si un
+l’arrêt, et un arrêt non confirmé est renvoyé au démarrage de
+l’intégration, avant la lecture de la configuration : trois renvois au plus
+par appui, ceux du démarrage compris. Si un
 démarrage du mode fête depuis Gladys a été écrit sans confirmation avant
 l’arrêt, le mode fête relu actif dans les 2 minutes qui suivent l’arrêt est
 aussi pris pour ce démarrage arrivé en retard, et l’arrêt est renvoyé (même
 limite). La garde n’est pas levée par le temps : seulement par un démarrage
 du mode fête depuis Gladys (option activée), par le mode fête relu actif à
 deux lectures de suite après que l’arrêt a été vu appliqué (démarré sur la
-centrale ou par une autre application), ou par une autre adresse
-enregistrée.
+centrale ou par une autre application), ou par une autre adresse valide
+enregistrée (une adresse vide ou invalide la garde).
 
 ## Statut
 
@@ -132,7 +135,9 @@ L’écran de configuration affiche l’état de la centrale (niveau, mode, mode
 fête, code de défaut, filtres), la cause d’un échec et le délai avant la
 prochaine lecture. Si Gladys ne peut pas donner la configuration à
 l’intégration, le statut le dit et la configuration est redemandée après
-5 s, 15 s, 30 s, puis toutes les minutes.
+5 s, 15 s, 30 s, puis toutes les minutes. Une configuration lue depuis
+Gladys pendant que vous en enregistrez une autre est écartée : la dernière
+enregistrée gagne.
 
 ## Données
 

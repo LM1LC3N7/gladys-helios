@@ -655,3 +655,126 @@ test('a party start clicked while the party is already on lifts the stop guard',
   assert.equal(ctx.unit.get('v00094'), '1', 'the newer wish stays');
   assert.equal(ctx.unit.writes().filter((w) => w === 'v00094=0').length, 1);
 });
+
+// --- Review r1 -------------------------------------------------------------------
+
+test('r1 I1: a getConfig() answer older than a save is dropped (the option unchecked stays off)', async (t) => {
+  const ctx = await setup(t, { config: ALLOW });
+  let answer;
+  const slow = () =>
+    new Promise((resolve) => {
+      answer = () => resolve({ ...ALLOW, poll_interval: 600 });
+    });
+  const reconnecting = ctx.app.onConnected(slow);
+  await ctx.advance(100, 10);
+  await ctx.gladys.fake.configUpdated({ host: HOST, allow_commands: false, poll_interval: 120 });
+  answer();
+  await ctx.advance(500, 10);
+  await reconnecting;
+  assert.equal(ctx.app.config.allowCommands, false);
+  assert.equal(ctx.app.config.pollInterval, 120);
+  const ack = await ctx.press('fan-stage', '4');
+  assert.equal(ack.success, false);
+  assert.deepEqual(ctx.unit.writes(), []);
+});
+
+test('r1 I2: an empty or invalid address never lifts the stop guard; the stop goes to /data', async (t) => {
+  const vars = defaultVars();
+  vars.set('v00094', '1');
+  const ctx = await setup(t, { unit: fakeHelios({ vars }) });
+  ctx.unit.ignoreWrites = true;
+  assert.equal((await ctx.press('party-stop')).success, false);
+  assert.equal(ctx.store.data.stopGuard.pending, true);
+  for (const host of ['not a host', '']) {
+    const saved = ctx.gladys.fake.configUpdated({ host });
+    await ctx.advance(1_000, 20);
+    await saved;
+    assert.ok(ctx.app.stopGuard, `kept with "${host}"`);
+    assert.ok(ctx.store.data.stopGuard, `kept in /data with "${host}"`);
+  }
+  // Without a valid address, the stop goes to the address kept in /data.
+  ctx.unit.ignoreWrites = false;
+  const ack = await ctx.press('party-stop');
+  assert.equal(ack.success, true, text(ack));
+  assert.equal(ctx.unit.get('v00094'), '0');
+  const saved = ctx.gladys.fake.configUpdated({ host: HOST });
+  await ctx.advance(5_000, 20);
+  await saved;
+  assert.ok(ctx.app.stopGuard, 'the same address keeps it');
+});
+
+test('r1 I3: the option unchecked during the /data write of a party start: nothing written', async (t) => {
+  const store = memoryStore();
+  const ctx = await setup(t, { config: ALLOW, store });
+  assert.equal((await ctx.press('party-stop')).success, true);
+  const save = store.save.bind(store);
+  store.save = (data) =>
+    new Promise((resolve, reject) => {
+      setTimeout(() => save(data).then(resolve, reject), 1_000);
+    });
+  const start = ctx.fire('party-start');
+  for (let i = 0; i < 300 && !ctx.app.active; i += 1) await ctx.advance(10, 10);
+  // The fresh read is done (8 requests), the /data write is pending.
+  await ctx.advance(400, 10);
+  await ctx.gladys.fake.configUpdated({ host: HOST, allow_commands: false });
+  await ctx.advance(5 * SECOND, 10);
+  const ack = await start;
+  assert.equal(ack.success, false);
+  assert.match(text(ack), /Autoriser les commandes/);
+  assert.deepEqual(ctx.unit.writes(), ['v00094=0']);
+  assert.ok(ctx.app.stopGuard, 'the guard is kept again');
+});
+
+test('r1 I3: a command refused on arrival opens no connection and leaves a read alone', async (t) => {
+  const ctx = await setup(t);
+  const connections = ctx.unit.connections;
+  ctx.unit.delay = 200;
+  await ctx.advance(60 * SECOND, 20);
+  assert.equal(ctx.app.active?.kind, 'read');
+  const reading = ctx.app.active;
+  const ack = ctx.fire('fan-stage', '3');
+  await ctx.advance(50, 10);
+  assert.equal(ctx.app.active, reading, 'the read goes on');
+  assert.equal((await ack).success, false);
+  assert.equal(ctx.unit.connections, connections + 1, 'only the read connected');
+});
+
+test('r1 I3: the time of a read is in /data before its first request', async (t) => {
+  const store = memoryStore();
+  const unit = fakeHelios();
+  const at = [];
+  const save = store.save.bind(store);
+  store.save = (data) => {
+    if (Number.isFinite(data.lastAttemptAt)) at.push(unit.log.length);
+    return save(data);
+  };
+  await setup(t, { store, unit });
+  assert.equal(at[0], 0, 'written before any request');
+  assert.equal(store.data.lastAttemptAt, NOW);
+});
+
+test('r1 I3: a wrong echo of the selection or a read of the wrong size ends the read', async (t) => {
+  for (const spoil of [(u) => (u.badEcho = true), (u) => u.shortReads.add('v00101')]) {
+    const unit = fakeHelios();
+    spoil(unit);
+    const ctx = await setup(t, { unit, create: false });
+    assert.equal(ctx.status().connected, false);
+    assert.match(ctx.status().message.fr, /a mal répondu \(protocol\)/);
+    assert.equal(ctx.gladys.fake.discoveredDevices.length, 0);
+    assert.ok(unit.selections().length <= 2, 'nothing more asked on that session');
+    await ctx.app.shutdownApp();
+    t.mock.timers.reset();
+  }
+});
+
+test('r1 M5: a stop kept unconfirmed is sent at start three times at most', async (t) => {
+  const store = memoryStore({
+    address: { host: HOST, port: 502 },
+    stopGuard: { unit: HOST, host: HOST, port: 502, pending: true, reasserts: 3 },
+  });
+  const unit = fakeHelios();
+  const ctx = await setup(t, { store, unit, connect: false });
+  await ctx.advance(1_000, 10);
+  assert.deepEqual(unit.writes(), []);
+  assert.ok(ctx.app.stopGuard, 'still kept');
+});

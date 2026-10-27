@@ -22,6 +22,12 @@ up to date at the end of every milestone.
       `allow_commands` (off), "Stop the party mode" never held back by the
       option, its guard in /data, test button, getConfig retried, docs
       en/fr, cover. Tested against a fake unit only.
+- [x] **Review r1 fixes** (2026-10-27): stale getConfig() answer dropped
+      (I1), an empty or invalid address keeps the stop guard and the stop
+      goes to /data (I2), tests for the surviving mutants (I3), model name
+      filtered (I4), write whitelist in `writeRequest` (I5); minors: -0, CO2
+      below 250 ppm unknown, resends at start counted, a joined stop that
+      fails gets its own tries, one clock read per status. Tests `r1 …`.
 - [ ] **Milestone 2 — real unit**: run against a real KWL EC (see "To check").
 - [ ] **Milestone 3 — more**: filter change reset (v01031) as a button
       behind the option, if a real unit shows how its effect is confirmed;
@@ -41,6 +47,11 @@ up to date at the end of every milestone.
   sensor ("vXXXXX=" or "vXXXXX=-"), and the format of the CO2 values
   (char[4] but ".1f" in the Helios list).
 - Whether writing the fan stage in automatic mode is kept (we refuse it).
+- Whether the values come padded with spaces (" 21.5"): they are refused
+  today (strict), so no temperature would ever be published (review r1 M3).
+- How long one request takes: a command needs 11 requests before its ack;
+  above about 300 ms per request every command is "too slow, not sent"
+  (review r1 M4).
 - Whether the unit accepts a second Modbus client (Home Assistant and Gladys
   at once): the selection is shared, a clash leaves one value unknown.
 
@@ -115,6 +126,20 @@ up to date at the end of every milestone.
 - **Reconnection to Gladys**: status, Discovery and badge republished, no
   read, no old value republished; a device created later gets the last
   values only while they are younger than the interval.
+- **Review r1**: a getConfig() answer is dropped when a configuration was
+  saved since it was asked (counter of saves; the last saved wins). Only a
+  valid, different address lifts the stop guard; without a valid address
+  in the configuration, the stop goes to the address kept in /data. Writes
+  are whitelisted in `writeRequest` itself (v00094 0/1, v00101 0/1, v00102
+  1-4). The model name keeps `[A-Za-z0-9 ._/()+-]` (31 at most) with a
+  letter or digit. A CO2 value below 250 ppm is unknown. The stop sent at
+  start counts in the three resends. A variable answered with a frame of
+  the wrong size ends the read (the session is not trusted any more); a
+  read that ends early keeps the values read (review r1 M1).
+  Equivalent mutants left: the empty-value check in `decodeValue` (each
+  kind refuses "" anyway), the `read.other` branch of `readAll` (logs
+  only), and `!guardActive` in the "already so" test (the fresh read lifts
+  a command guard whenever the value reads as asked).
 - **Not done**: Bluetooth (none), scenes, widgets, VOC sensors, holiday
   programme, bypass, heaters, standby commands, filter reset; `keywords`
   and `countries` are not in the manifest (DE, AT, CH, FR).

@@ -37,7 +37,9 @@ device: please report what your unit shows (see "To check" in `TODO.md`).
   at the first read, then every hour), and is kept afterwards.
 
 A value the unit returns empty, as "-" (no sensor), out of its range or
-malformed is unknown: it is never published, never as 0.
+malformed is unknown: it is never published, never as 0. A CO2 value below
+250 ppm is taken for a sensor error. The model name keeps letters, digits,
+spaces and `. _ / ( ) + -` only.
 
 ## Reads
 
@@ -85,33 +87,35 @@ unit" (Modbus exception 1 to 3), or "not sent".
 
 "Stop the party mode" never depends on the "Allow the commands" option, on
 another command, on the identity check, on a failed read or on the
-configuration being read: before the configuration is read, it goes to the
-last address kept in `/data`. It takes the connection from any read or
+configuration being read: before the configuration is read, or while it
+holds no valid address, it goes to the last valid address kept in `/data`. It takes the connection from any read or
 command, and a command not written yet is then refused. The connection is
 tried again every 250 ms for 3.5 s after the press.
 
 It can fail in these cases, and the answer says which:
 
-- no address: none in the configuration, or none kept yet in `/data` while
-  the configuration cannot be read ("not sent");
+- no address: no valid one in the configuration and none kept in `/data`
+  ("not sent");
 - the unit cannot be reached for 3.5 s ("not sent");
 - the write left but the unit did not answer, answered something else, or
   the party mode is still read on, or cannot be read back ("sent, without
   confirmation");
 - the unit refused the write with a Modbus exception 1 to 3 ("refused by
   the unit");
-- another address is saved while it runs, or the integration stops.
+- another valid address is saved while it runs, or the integration stops.
 
 After a press, a stop guard is kept in `/data`. While the stop is not seen
-applied, a read showing the party mode on sends the stop again (three times
-at most per press), and a stop not confirmed is sent again when the
-integration starts, before the configuration is read. If a party mode start
+applied, a read showing the party mode on sends the stop again, and a stop
+not confirmed is sent again when the integration starts, before the
+configuration is read: three resends at most per press, those at start
+included. If a party mode start
 from Gladys was written and not confirmed before the stop, the party mode
 read on in the 2 minutes after the stop is also taken for that start
 landing late, and the stop is sent again (same limit). The guard is not
 lifted by the time: only by a party mode start from Gladys (option on), by
 the party mode read on two reads in a row after the stop was seen applied
-(started on the unit or by another app), or by another address saved.
+(started on the unit or by another app), or by another valid address saved
+(an empty or invalid address keeps it).
 
 ## Status
 
@@ -119,7 +123,8 @@ The configuration screen shows the state of the unit (stage, mode, party
 mode, fault code, filter), the reason of a failure and the time to the next
 read. If Gladys cannot give the configuration to the integration, the
 status says so and the configuration is asked again after 5 s, 15 s, 30 s,
-then every minute.
+then every minute. A configuration read from Gladys while you save another
+one is dropped: the one saved last wins.
 
 ## Privacy
 

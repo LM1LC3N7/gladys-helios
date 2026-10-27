@@ -146,6 +146,8 @@ export class HeliosApp {
     this.configWait = undefined;
     /** Configurations (connected, saved) applied one at a time, in order. */
     this.configChain = Promise.resolve();
+    /** Configurations saved so far: a getConfig() answer older than a save is dropped. */
+    this.configSaves = 0;
     this.started = false;
     /** The time of the last read sent to the unit (monotonic; /data keeps it within a minute). */
     this.lastAttemptAt = -Infinity;
@@ -214,7 +216,10 @@ export class HeliosApp {
             stickyUntil:
               kept.stickyUntil === null ? -Infinity : this.mono() + (kept.stickyUntil - this.now()),
           };
-          if (kept.pending) {
+          if (kept.pending && kept.reasserts < TIMINGS.stopReasserts) {
+            // Counted as a resend: a container restarting in a loop sends it three times at most.
+            this.stopGuard.reasserts += 1;
+            this.persistStopGuard();
             this.logger.warn('Helios: a party stop kept unconfirmed in /data is sent again');
             this.protect(STOP_PLAN, this.mono(), { keepCount: true }).catch((err) =>
               this.logger.warn(`Helios: party stop at start: ${err.message}`),
@@ -302,7 +307,8 @@ export class HeliosApp {
    */
   adoptAddress() {
     const key = this.unitKey();
-    if (this.stopGuard && this.stopGuard.unit !== key) {
+    // Only a valid, different address is another unit: an empty or invalid one keeps the guard.
+    if (this.stopGuard && key && this.stopGuard.unit !== key) {
       this.logger.info('Helios: the party stop guard of another address is dropped');
       this.stopGuard = undefined;
       this.persistStopGuard();
@@ -379,6 +385,7 @@ export class HeliosApp {
     const seq = ++this.connectSeq;
     for (let attempt = 0; ; attempt += 1) {
       let raw;
+      const saves = this.configSaves;
       try {
         raw = await getConfig();
       } catch (err) {
@@ -407,7 +414,8 @@ export class HeliosApp {
       if (seq !== this.connectSeq || this.shutdown) {
         return;
       }
-      await this.serial(() => this.connected(raw));
+      // A configuration saved while this one was read (or queued) is newer: this one is dropped.
+      await this.serial(() => (saves === this.configSaves ? this.connected(raw) : undefined));
       return;
     }
   }
@@ -471,6 +479,7 @@ export class HeliosApp {
    * before the first start, it is the start.
    */
   configUpdated(raw = {}) {
+    this.configSaves += 1;
     return this.serial(() => this.applyConfig(raw));
   }
 
@@ -935,6 +944,7 @@ export class HeliosApp {
   status() {
     const u = this.unit;
     const c = this.config;
+    const now = this.mono();
     const withMemory = (text) =>
       this.memoryUnreadable
         ? both(`${text.en}${T.memoryUnreadable.en}`, `${text.fr}${T.memoryUnreadable.fr}`)
@@ -954,9 +964,7 @@ export class HeliosApp {
       return T.otherUnit(this.memory.identity?.mac ?? '?', this.mismatch);
     }
     if (u.online === undefined) {
-      return withMemory(
-        u.timer && this.due > this.mono() ? T.waiting(age(this.due - this.mono())) : T.connecting,
-      );
+      return withMemory(u.timer && this.due > now ? T.waiting(age(this.due - now)) : T.connecting);
     }
     return withMemory(T.connected(T.summary(u.values ?? {})));
   }
@@ -1137,10 +1145,11 @@ export class HeliosApp {
       await u.running;
       return current();
     }
-    if (this.mono() < this.due) {
-      const waited = T.waiting(age(this.due - this.mono()));
+    const now = this.mono();
+    if (now < this.due) {
+      const waited = T.waiting(age(this.due - now));
       return Number.isFinite(this.lastAttemptAt) && u.online !== undefined
-        ? join(join(current(), T.lastRead(age(this.mono() - this.lastAttemptAt))), waited)
+        ? join(join(current(), T.lastRead(age(now - this.lastAttemptAt))), waited)
         : waited;
     }
     this.clearTimer();
@@ -1401,7 +1410,7 @@ export class HeliosApp {
         throw this.refusal(ERRORS.memoryNotSaved);
       }
       state.guardLifted = lifted;
-      check();
+      // The option and the configuration are checked again right before the write (beforeSend).
     }
     if (state.from === plan.expected && !this.guardActive(command.variable)) {
       // Already so: nothing sent.
@@ -1488,16 +1497,28 @@ export class HeliosApp {
    * else the one kept in /data (with the stop guard, or the last configured).
    */
   stopAddress() {
-    if (this.configLoaded) {
+    if (this.configLoaded && this.config.address) {
       return this.config.address;
     }
     return this.stopGuard?.address ?? this.memory.address ?? undefined;
   }
 
-  /** A second press while one runs joins it. */
+  /**
+   * A second press while one runs joins it; when the joined one fails, this
+   * press still gets its own tries if its 3.5 s are not over.
+   */
   async protect(plan, received, { keepCount = false } = {}) {
     if (this.protecting) {
-      return this.protecting;
+      try {
+        return await this.protecting;
+      } catch (err) {
+        if (
+          this.protecting ||
+          this.mono() + TIMINGS.connectRetry >= received + TIMINGS.commandSendBy
+        ) {
+          throw err;
+        }
+      }
     }
     const promise = this.sendStop(plan, received, { keepCount });
     this.protecting = promise;
@@ -1524,7 +1545,7 @@ export class HeliosApp {
     }
     const address = this.stopAddress();
     if (!address) {
-      throw this.refusal(this.configLoaded ? ERRORS.noHost : ERRORS.noAddressKnown);
+      throw this.refusal(ERRORS.noAddressKnown);
     }
     const unit = addressKey(address);
     // A command not written yet gives way (checked right before its write).
@@ -1539,7 +1560,8 @@ export class HeliosApp {
     const state = { written: false, sentAt: undefined };
     const retryUntil = received + TIMINGS.commandSendBy;
     const stillValid = () =>
-      !this.shutdown && (!this.configLoaded || addressKey(this.config.address ?? {}) === unit);
+      !this.shutdown &&
+      (!this.configLoaded || !this.config.address || addressKey(this.config.address) === unit);
     // Writing 0 is idempotent: a connection closed, a timeout or a wrong
     // answer is tried again every 250 ms until 3.5 s after the press.
     const attempt = (session) =>

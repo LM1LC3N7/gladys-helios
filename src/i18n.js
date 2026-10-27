@@ -162,8 +162,8 @@ export const ERRORS = {
     'Aucune adresse valide dans la configuration : non envoyée.',
   ),
   noAddressKnown: both(
-    'No address of the unit known yet (configuration not read): not sent.',
-    'Aucune adresse de la centrale connue pour l’instant (configuration non lue) : non envoyée.',
+    'No valid address of the unit known (none in the configuration, none kept in /data): not sent.',
+    'Aucune adresse valide de la centrale connue (ni dans la configuration, ni gardée dans /data) : non envoyée.',
   ),
   notStarted: both(
     'The configuration has not been read from Gladys yet: not sent.',

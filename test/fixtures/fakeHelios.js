@@ -51,7 +51,7 @@ export function defaultVars() {
 const WRITABLE = {
   v00094: /^[01]$/,
   v00101: /^[01]$/,
-  v00102: /^[0-4]$/,
+  v00102: /^[1-4]$/,
 };
 
 class FakeSocket extends EventEmitter {
@@ -108,6 +108,8 @@ export function fakeHelios({ vars = defaultVars() } = {}) {
     split: false,
     wrongTransaction: false,
     badEcho: false,
+    /** Variable names read back with one register too few (a frame of the wrong size). */
+    shortReads: new Set(),
     /** Called with each write applied ("v00094=1"). */
     onWrite: undefined,
     /** The answer PDU of one request (no MBAP), or undefined for no answer. */
@@ -146,11 +148,12 @@ export function fakeHelios({ vars = defaultVars() } = {}) {
         }
         const name = unit.selected ?? 'v00000';
         const text = `${name}=${unit.vars.get(name) ?? ''}`;
-        const out = Buffer.alloc(2 + count * 2);
+        const registers = unit.shortReads.has(name) ? count - 1 : count;
+        const out = Buffer.alloc(2 + registers * 2);
         out[0] = 3;
-        out[1] = count * 2;
+        out[1] = registers * 2;
         // Too few registers: the text cut (no NUL), as Helios describes it.
-        Buffer.from(text, 'ascii').copy(out, 2, 0, Math.min(text.length, count * 2));
+        Buffer.from(text, 'ascii').copy(out, 2, 0, Math.min(text.length, registers * 2));
         return out;
       }
       return Buffer.from([fc | 0x80, 1]);
