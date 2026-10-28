@@ -44,7 +44,7 @@ merci de signaler ce que montre votre centrale (voir « To check » dans
 Une valeur renvoyée vide, en « - » (pas de capteur), hors de sa plage ou
 mal formée est inconnue : elle n’est pas publiée, et jamais comme 0. Une
 valeur de CO2 sous 250 ppm est prise pour une erreur du capteur. Le nom du
-modèle ne garde que les lettres, les caractères 0 à 9, les espaces et `. _ / ( ) + -`.
+modèle ne garde que les lettres, les chiffres, les espaces et `. _ / ( ) + -`.
 
 ## Lectures
 
@@ -127,7 +127,7 @@ limite). La garde n’est pas levée par le temps : seulement par un démarrage
 du mode fête depuis Gladys (option activée), par le mode fête relu actif à
 deux lectures de suite après que l’arrêt a été vu appliqué (démarré sur la
 centrale ou par une autre application), ou par une autre adresse valide
-enregistrée (une adresse vide ou invalide la garde).
+enregistrée (une adresse vide ou invalide la conserve).
 
 ## Statut
 

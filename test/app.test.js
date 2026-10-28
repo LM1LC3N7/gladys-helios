@@ -778,3 +778,109 @@ test('r1 M5: a stop kept unconfirmed is sent at start three times at most', asyn
   assert.deepEqual(unit.writes(), []);
   assert.ok(ctx.app.stopGuard, 'still kept');
 });
+
+// --- Review r2 -------------------------------------------------------------------
+
+/** The party on, a stop not applied (guard pending), /data slow to write, then a party start. */
+async function partyOnGuardPending(t) {
+  const vars = defaultVars();
+  vars.set('v00094', '1');
+  const store = memoryStore();
+  const unit = fakeHelios({ vars });
+  const ctx = await setup(t, { config: ALLOW, store, unit });
+  unit.ignoreWrites = true;
+  assert.equal((await ctx.press('party-stop')).success, false);
+  assert.equal(store.data.stopGuard.pending, true);
+  const save = store.save.bind(store);
+  store.save = (data) =>
+    new Promise((resolve, reject) => {
+      setTimeout(() => save(data).then(resolve, reject), 1_000);
+    });
+  const start = ctx.fire('party-start');
+  for (let i = 0; i < 300 && !ctx.app.active; i += 1) await ctx.advance(10, 10);
+  // The fresh read is done (8 requests), the /data write is pending.
+  await ctx.advance(400, 10);
+  return { ctx, start, store };
+}
+
+test('r2 B1: party already on, guard pending, option unchecked during the /data write: refused, guard kept', async (t) => {
+  const { ctx, start, store } = await partyOnGuardPending(t);
+  await ctx.gladys.fake.configUpdated({ host: HOST, allow_commands: false });
+  await ctx.advance(5 * SECOND, 10);
+  const ack = await start;
+  assert.equal(ack.success, false);
+  assert.match(text(ack), /Autoriser les commandes/);
+  assert.ok(ctx.app.stopGuard, 'kept in memory');
+  await ctx.advance(2 * SECOND, 10);
+  assert.ok(store.data.stopGuard, 'kept in /data');
+  assert.ok(!ctx.unit.writes().includes('v00094=1'));
+});
+
+test('r2 B1: party already on, guard pending, party stop clicked during the /data write: start refused', async (t) => {
+  const { ctx, start } = await partyOnGuardPending(t);
+  const stop = ctx.fire('party-stop');
+  await ctx.advance(6 * SECOND, 10);
+  const ack = await start;
+  await stop;
+  assert.equal(ack.success, false);
+  assert.match(text(ack), /arrêté entre-temps/);
+  assert.ok(ctx.app.stopGuard, 'the guard stays');
+  assert.ok(!ctx.unit.writes().includes('v00094=1'));
+});
+
+test('r2 B1: party already on, guard pending, address changed during the /data write: start refused', async (t) => {
+  const { ctx, start } = await partyOnGuardPending(t);
+  const saved = ctx.gladys.fake.configUpdated({ host: '192.168.1.91', allow_commands: true });
+  await ctx.advance(6 * SECOND, 10);
+  const ack = await start;
+  await saved;
+  assert.equal(ack.success, false);
+  assert.match(text(ack), /configuration a changé/);
+  assert.ok(!ctx.unit.writes().includes('v00094=1'));
+});
+
+test('r2 I1: a guard of another value alive: the value asked is written, never "already so"', async (t) => {
+  const ctx = await setup(t, { config: ALLOW });
+  ctx.unit.ignoreWrites = true;
+  const first = await ctx.press('fan-stage', '4');
+  assert.match(text(first), /sans confirmation/);
+  // Someone sets stage 3 on the remote; the 4 may still land.
+  ctx.unit.ignoreWrites = false;
+  ctx.unit.vars.set('v00102', '3');
+  const second = await ctx.press('fan-stage', '3', 2 * SECOND);
+  assert.equal(second.success, true, text(second));
+  assert.ok(ctx.unit.writes().includes('v00102=3'), 'written again over the pending 4');
+});
+
+test('r2 I2: a second press joining a stop that fails gets its own tries', async (t) => {
+  const ctx = await setup(t);
+  ctx.unit.vars.set('v00094', '1');
+  ctx.unit.down = true;
+  const first = ctx.fire('party-stop');
+  await ctx.advance(3_000, 10);
+  const second = ctx.fire('party-stop');
+  await ctx.advance(1_000, 10);
+  ctx.unit.down = false;
+  await ctx.advance(5_000, 10);
+  assert.equal((await first).success, false);
+  const ack = await second;
+  assert.equal(ack.success, true, text(ack));
+  assert.equal(ctx.unit.get('v00094'), '0');
+});
+
+test('r2 I2: a stop in its retries goes on while an invalid address is saved (to /data)', async (t) => {
+  const ctx = await setup(t);
+  ctx.unit.vars.set('v00094', '1');
+  // Accepted then closed at once: the stop's own loop of retries (not the connection's).
+  ctx.unit.dropConnections = 1_000;
+  const stop = ctx.fire('party-stop');
+  await ctx.advance(300, 10);
+  const saved = ctx.gladys.fake.configUpdated({ host: 'not a host' });
+  await ctx.advance(500, 10);
+  ctx.unit.dropConnections = 0;
+  await ctx.advance(5_000, 10);
+  await saved;
+  const ack = await stop;
+  assert.equal(ack.success, true, text(ack));
+  assert.equal(ctx.unit.get('v00094'), '0');
+});

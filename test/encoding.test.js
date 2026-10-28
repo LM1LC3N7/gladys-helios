@@ -68,9 +68,14 @@ test('no control byte in any text file (tab, LF and CR aside)', () => {
 });
 
 test('never "encrypted" nor "chiffré"', () => {
+  for (const word of ['chiffré', 'Chiffrée', 'chiffrement', 'chiffrer', 'encrypted']) {
+    assert.match(word, /chiffr(?:é|ement|er\b)|encrypt/i, word);
+  }
+  assert.doesNotMatch('les chiffres', /chiffr(?:é|ement|er\b)|encrypt/i);
   for (const file of DOCS) {
     const text = readFileSync(new URL(file, root), 'utf8');
-    assert.doesNotMatch(text, /chiffr|encrypt/i, `${file} says encrypted`);
+    // "chiffres" (digits) is fine; chiffré, chiffrement, chiffrer are not.
+    assert.doesNotMatch(text, /chiffr(?:é|ement|er\b)|encrypt/i, `${file} says encrypted`);
   }
 });
 

@@ -52,6 +52,8 @@ up to date at the end of every milestone.
 - How long one request takes: a command needs 11 requests before its ack;
   above about 300 ms per request every command is "too slow, not sent"
   (review r1 M4).
+- Whether real model names hold characters outside `[A-Za-z0-9 ._/()+-]`
+  ("," or "®"): the generic model name is shown then (review r2 m2).
 - Whether the unit accepts a second Modbus client (Home Assistant and Gladys
   at once): the selection is shared, a clash leaves one value unknown.
 
@@ -137,9 +139,17 @@ up to date at the end of every milestone.
   the wrong size ends the read (the session is not trusted any more); a
   read that ends early keeps the values read (review r1 M1).
   Equivalent mutants left: the empty-value check in `decodeValue` (each
-  kind refuses "" anyway), the `read.other` branch of `readAll` (logs
-  only), and `!guardActive` in the "already so" test (the fresh read lifts
-  a command guard whenever the value reads as asked).
+  kind refuses "" anyway) and the `read.other` branch of `readAll` (logs
+  only).
+- **Review r2**: `check()` is back right after the /data write of a party
+  start, and again in the "already so" branch before the stop guard is
+  lifted (that branch leaves before `beforeSend`); a refusal puts the guard
+  back in memory and /data. The three `check()` (after /data, "already so",
+  `beforeSend`) follow each other with no `await` between: removing one
+  alone changes nothing, removing two is caught by the tests (party on or
+  off, guard pending, option unchecked / stop clicked / address changed
+  during the /data write). `!guardActive` stays: a guard of another value
+  (4 pending, 3 asked and read) means the value asked is written again.
 - **Not done**: Bluetooth (none), scenes, widgets, VOC sensors, holiday
   programme, bypass, heaters, standby commands, filter reset; `keywords`
   and `countries` are not in the manifest (DE, AT, CH, FR).

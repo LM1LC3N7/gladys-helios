@@ -1410,11 +1410,16 @@ export class HeliosApp {
         throw this.refusal(ERRORS.memoryNotSaved);
       }
       state.guardLifted = lifted;
-      // The option and the configuration are checked again right before the write (beforeSend).
+      // After the await: the option, the configuration and a party stop again
+      // (a refusal puts the guard back, see command()).
+      check();
     }
+    // A guard of another value still alive: written again, never "already so".
     if (state.from === plan.expected && !this.guardActive(command.variable)) {
       // Already so: nothing sent.
       if (state.guardLifted) {
+        // Exits before beforeSend: checked here before the guard is lifted.
+        check();
         this.stopGuard = undefined;
         state.guardLifted = undefined;
         this.logger.info('Helios: party stop guard lifted by a party start (already on)');
