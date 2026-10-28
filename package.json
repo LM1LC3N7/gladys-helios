@@ -1,6 +1,6 @@
 {
   "name": "gladys-helios",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for Helios KWL EC ventilation units with easyControls over local Modbus TCP: temperatures, fan stage, party and standby modes, filter, faults, external humidity and CO2 sensors; optional commands. Unofficial, not affiliated with Helios.",
   "type": "module",

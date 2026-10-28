@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-28
+
 ### Added
 
 - Helios KWL EC heat recovery ventilation with easyControls (software 2.01
@@ -24,3 +26,6 @@ the notes of the version's GitHub Release.
   guard kept in `/data` (see the guide for the cases where it can fail).
 - The MAC address of the unit checked before every read and command.
 - Guides in English and French.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-helios/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-helios/releases/tag/v0.1.1
