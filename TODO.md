@@ -28,6 +28,12 @@ up to date at the end of every milestone.
       filtered (I4), write whitelist in `writeRequest` (I5); minors: -0, CO2
       below 250 ppm unknown, resends at start counted, a joined stop that
       fails gets its own tries, one clock read per status. Tests `r1 …`.
+- [x] **Review r3** (2026-10-28): APPROUVÉ, no blocker.
+- [ ] **Next patch — review r3 leftovers**: the forbidden-word pattern of
+      `test/encoding.test.js` misses some French verb forms and a decomposed
+      accent: widen it (see review r3 m1) and match on NFC text; comment the three `check()`
+      in a row (a future `await` between them would go unnoticed); read the
+      variables again against the Helios PDF 82 269.
 - [ ] **Milestone 2 — real unit**: run against a real KWL EC (see "To check").
 - [ ] **Milestone 3 — more**: filter change reset (v01031) as a button
       behind the option, if a real unit shows how its effect is confirmed;
